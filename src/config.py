@@ -18,3 +18,12 @@ COCO = [
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUT_DIR = "out"
+
+# SAM Configuration
+SAM_CHECKPOINT = "weights/sam_vit_h_4b8939.pth"
+
+# Zero123++ Configuration
+ZERO123_MODEL = "sudo-ai/zero123plus-v1.2"
+
+# Low VRAM Mode (for MX450, etc.)
+USE_LOW_VRAM_MODE = True

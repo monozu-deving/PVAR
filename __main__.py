@@ -13,9 +13,11 @@ from dotenv import load_dotenv, find_dotenv
 
 # Modular Imports
 from src.config import OUT_DIR
-from src.models.segmentation import maskrcnn_mask
+from src.models.segmentation import maskrcnn_mask, detect_all_objects
 from src.models.depth import midas_depth
 from src.models.ai import get_openai_client, analyze_deformation
+from src.models.sam import sam_refine_mask
+from src.models.zero123 import generate_multiview
 from src.core.rendering import render_and_save
 from src.core.deformation import deform_points
 from src.utils.io import save_as_obj
@@ -39,11 +41,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Store detection results temporarily (in production, use Redis or similar)
+_detection_cache = {}
+
+@app.post("/detect")
+async def detect_objects(image: UploadFile = File(...)):
+    """Detect all objects in the uploaded image."""
+    try:
+        img_content = await image.read()
+        nparr = np.frombuffer(img_content, np.uint8)
+        rgb_orig = cv2.cvtColor(cv2.imdecode(nparr, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+        
+        print("Detecting all objects in image...")
+        objects = detect_all_objects(rgb_orig, score_th=0.6)
+        
+        # Cache the image and detection results
+        import hashlib
+        img_hash = hashlib.md5(img_content).hexdigest()
+        _detection_cache[img_hash] = {
+            "image": rgb_orig,
+            "objects": objects
+        }
+        
+        return {
+            "status": "success",
+            "image_hash": img_hash,
+            "objects": objects,
+            "count": len(objects)
+        }
+    except Exception as e:
+        print(f"Error in detect_objects: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/nvs")
 async def process_nvs(
     image: UploadFile = File(...),
     target: Optional[str] = Form(None),
+    object_id: Optional[int] = Form(None),
     angle: float = Form(45.0),
+    mode: str = Form("fast"),  # "fast" or "hifi"
     refine: bool = Form(False),
     prompt: Optional[str] = Form(None)
 ):
@@ -55,9 +93,37 @@ async def process_nvs(
         h, w = rgb_orig.shape[:2]
 
         print(f"Detecting mask for target: {target or 'largest object'}...")
-        mask, box, lab = maskrcnn_mask(rgb_orig, target=target)
+        
+        # If object_id is provided, use cached detection results
+        if object_id is not None:
+            # Try to find in cache
+            import hashlib
+            img_hash = hashlib.md5(img_content).hexdigest()
+            if img_hash in _detection_cache:
+                cached = _detection_cache[img_hash]
+                objects = cached["objects"]
+                # Find the object by id
+                selected_obj = next((obj for obj in objects if obj["id"] == object_id), None)
+                if selected_obj:
+                    # Re-run detection to get mask for this specific object
+                    mask, box, lab = maskrcnn_mask(rgb_orig, target=selected_obj["label"])
+                else:
+                    mask, box, lab = maskrcnn_mask(rgb_orig, target=target)
+            else:
+                mask, box, lab = maskrcnn_mask(rgb_orig, target=target)
+        else:
+            mask, box, lab = maskrcnn_mask(rgb_orig, target=target)
+            
         if mask is None:
             raise HTTPException(status_code=400, detail="Object not detected. Try another image.")
+        
+        # High-Fidelity Mode: Refine mask with SAM
+        if mode == "hifi":
+            try:
+                print("Refining mask with SAM...")
+                mask = sam_refine_mask(rgb_orig, box, mask)
+            except Exception as e:
+                print(f"SAM refinement failed, using Mask R-CNN result: {e}")
 
         # 2. Depth
         depth = midas_depth(rgb_orig)
@@ -90,55 +156,98 @@ async def process_nvs(
         t0 = np.array([tx, ty, z0_new], dtype=np.float32)
         pts_centered = pts - t0
 
-        # 5. Render Normal
+        # 5. Render Normal with Gaussian Background
         uid = str(uuid.uuid4())[:8]
-        print("Cleaning background with median color...")
-        bg_mask = (mask == 0)
-        median_color = np.median(rgb_orig[bg_mask], axis=0).astype(np.uint8) if np.any(bg_mask) else np.array([128,128,128], dtype=np.uint8)
-        cleaned_bg = rgb_orig.copy()
-        cleaned_bg[mask > 0] = median_color
+        print("Rendering with gaussian noise background...")
         
-        files_normal = render_and_save(pts_centered, col, w, h, f, cx, cy, t0, angle, uid, bg_image=cleaned_bg)
+        files_normal = render_and_save(pts_centered, col, w, h, f, cx, cy, t0, angle, uid, bg_mode="gaussian")
         obj_normal = f"{uid}_model.obj"
         save_as_obj(pts_centered, col, os.path.join(OUT_DIR, obj_normal))
 
-        # 6. Render Bent
+        # 6. AI Material Analysis
         client = get_openai_client()
-        def_params = {"weight": 0.5, "style": "organic", "irregularity": 0.1}
+        analysis = {
+            "reasoning": "VLM 분석을 사용할 수 없습니다.",
+            "material_type": "알 수 없음",
+            "internal_strength": 0.5,
+            "external_strength": 0.5,
+            "flexibility": 0.5,
+            "compression_resistance": 0.5,
+            "deformation_params": {
+                "bend_amount": 0.5,
+                "squeeze_amount": 0.3,
+                "surface_irregularity": 0.1,
+                "style": "organic"
+            }
+        }
+        
         if client:
             try:
-                print("Analyzing deformation properties...")
-                def_params = await analyze_deformation(client, img_content, lab)
-                print(f"AI Deformation Params: {def_params}")
+                print("Analyzing material properties with VLM...")
+                analysis = await analyze_deformation(client, img_content, lab)
+                print(f"VLM Analysis: {analysis['material_type']}")
+                print(f"Reasoning: {analysis['reasoning'][:100]}...")  # Print first 100 chars
             except Exception as e:
-                print(f"Deformation analysis failed: {e}")
+                print(f"VLM analysis failed: {e}")
 
-        pts_bent = deform_points(pts_centered, 
-                                 amount=def_params["weight"], 
-                                 style=def_params["style"], 
-                                 irregularity=def_params["irregularity"])
+        # 7. Render Bent with Advanced Deformation
+        pts_bent = deform_points(
+            pts_centered,
+            bend_amount=analysis["deformation_params"]["bend_amount"],
+            squeeze_amount=analysis["deformation_params"]["squeeze_amount"],
+            internal_strength=analysis["internal_strength"],
+            external_strength=analysis["external_strength"],
+            surface_irregularity=analysis["deformation_params"]["surface_irregularity"],
+            style=analysis["deformation_params"]["style"]
+        )
         
         uid_bent = f"{uid}_bent"
-        files_bent = render_and_save(pts_bent, col, w, h, f, cx, cy, t0, angle, uid_bent, bg_image=cleaned_bg)
+        files_bent = render_and_save(pts_bent, col, w, h, f, cx, cy, t0, angle, uid_bent, bg_mode="gaussian")
         obj_bent = f"{uid_bent}.obj"
         save_as_obj(pts_bent, col, os.path.join(OUT_DIR, obj_bent))
 
         response_data = {
             "status": "success",
+            "mode": mode,
             "files": {
-                "left": f"/out/{files_normal[0]}",
-                "right": f"/out/{files_normal[1]}",
+                "center": f"/out/{files_normal[0]}",
+                "left": f"/out/{files_normal[1]}",
+                "right": f"/out/{files_normal[2]}",
                 "obj": f"/out/{obj_normal}",
-                "bent_left": f"/out/{files_bent[0]}",
-                "bent_right": f"/out/{files_bent[1]}",
+                "bent_center": f"/out/{files_bent[0]}",
+                "bent_left": f"/out/{files_bent[1]}",
+                "bent_right": f"/out/{files_bent[2]}",
                 "bent_obj": f"/out/{obj_bent}"
             },
             "label": lab,
-            "flexibility": def_params["weight"],
-            "def_style": def_params["style"],
-            "def_irregularity": def_params["irregularity"],
+            "material_analysis": {
+                "reasoning": analysis["reasoning"],
+                "material_type": analysis["material_type"],
+                "internal_strength": analysis["internal_strength"],
+                "external_strength": analysis["external_strength"],
+                "flexibility": analysis["flexibility"],
+                "compression_resistance": analysis["compression_resistance"],
+                "bend_amount": analysis["deformation_params"]["bend_amount"],
+                "squeeze_amount": analysis["deformation_params"]["squeeze_amount"],
+                "surface_irregularity": analysis["deformation_params"]["surface_irregularity"],
+                "style": analysis["deformation_params"]["style"]
+            },
             "angle": angle
         }
+        
+        # High-Fidelity Mode: Generate 6-view with Zero123++
+        if mode == "hifi":
+            try:
+                print("Generating high-fidelity multi-view with Zero123++...")
+                # Extract masked object for Zero123++
+                masked_rgb = rgb_orig.copy()
+                masked_rgb[mask == 0] = 255  # White background
+                
+                hifi_views = generate_multiview(masked_rgb, OUT_DIR, uid)
+                response_data["hifi_views"] = [f"/out/{view}" for view in hifi_views]
+            except Exception as e:
+                print(f"Zero123++ generation failed: {e}")
+                response_data["hifi_views"] = []
         
         # 7. DALL-E Edit Refinement (Optional)
         if refine and client:

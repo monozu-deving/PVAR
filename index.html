@@ -343,12 +343,36 @@
                         <input type="number" id="angleInput" value="45" min="1" max="90">
                     </div>
                     <div class="input-group">
-                        <div class="checkbox-group" id="refineToggleGroup">
-                            <input type="checkbox" id="refineToggle">
-                            <label for="refineToggle" style="margin-bottom: 0; color: white;">AI 정밀 복원 (DALL-E)</label>
+                        <label>모드 선택</label>
+                        <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                            <label class="radio-label"
+                                style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="mode" value="fast" checked style="width: auto;">
+                                <span style="color: var(--text-color); font-size: 0.9rem;">3D Point Cloud Mode</span>
+                            </label>
+                            <label class="radio-label"
+                                style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="mode" value="hifi" style="width: auto;">
+                                <span style="color: var(--text-color); font-size: 0.9rem;">Generative NVS Mode</span>
+                            </label>
                         </div>
                     </div>
-                    <button class="btn-action" id="actionBtn">3D 변환 시작</button>
+                    <div class="input-group">
+                        <div class="checkbox-group" id="refineToggleGroup">
+                            <input type="checkbox" id="refineToggle">
+                            <label for="refineToggle" style="margin-bottom: 0; color: white;">Switch to Deformation
+                                Sampling</label>
+                        </div>
+                    </div>
+                    <button class="btn-action" id="analyzeBtn" style="display: none;">이미지 분석</button>
+                </div>
+
+                <div class="panel" id="objectSelectionPanel" style="display: none;">
+                    <h2 class="section-title">객체 선택</h2>
+                    <div id="objectGallery" class="object-gallery"
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 1rem;">
+                    </div>
+                    <button class="btn-action" id="actionBtn" style="display: none;">3D 변환 시작</button>
                 </div>
             </aside>
 
@@ -366,12 +390,76 @@
 
                 <div class="results-gallery" id="resultsGallery" style="display: none;">
                     <div class="result-card">
+                        <img id="viewCenter" src="" alt="Center">
+                        <span>Center View</span>
+                    </div>
+                    <div class="result-card">
                         <img id="viewLeft" src="" alt="Left">
-                        <span>Side View (-)</span>
+                        <span>Left Side View (-)</span>
                     </div>
                     <div class="result-card">
                         <img id="viewRight" src="" alt="Right">
-                        <span>Side View (+)</span>
+                        <span>Right Side View (+)</span>
+                    </div>
+                </div>
+
+                <!-- High-Fidelity 6-View Gallery -->
+                <div class="results-gallery" id="hifiGallery"
+                    style="display: none; grid-template-columns: repeat(3, 1fr); margin-top: 2rem;">
+                    <div class="result-card"><img id="hifiView0" src="" alt="Front Left"><span>Front-Left</span></div>
+                    <div class="result-card"><img id="hifiView1" src="" alt="Front"><span>Front</span></div>
+                    <div class="result-card"><img id="hifiView2" src="" alt="Front Right"><span>Front-Right</span></div>
+                    <div class="result-card"><img id="hifiView3" src="" alt="Back Left"><span>Back-Left</span></div>
+                    <div class="result-card"><img id="hifiView4" src="" alt="Back"><span>Back</span></div>
+                    <div class="result-card"><img id="hifiView5" src="" alt="Back Right"><span>Back-Right</span></div>
+                </div>
+
+                <!-- AI Material Analysis Section -->
+                <div id="aiAnalysisSection" style="display: none; margin-top: 2rem;">
+                    <div class="panel"
+                        style="background: rgba(0, 100, 150, 0.1); border-color: rgba(0, 210, 255, 0.3);">
+                        <h2 class="section-title" style="color: #00d2ff;">AI MATERIAL ANALYSIS</h2>
+
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="color: var(--accent-color); font-size: 0.9rem; margin-bottom: 0.5rem;">추론 과정
+                                (Chain of Thought)</h3>
+                            <p id="aiReasoning"
+                                style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                            </p>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div>
+                                <h3 style="color: var(--accent-color); font-size: 0.9rem; margin-bottom: 0.5rem;">재질 특성
+                                </h3>
+                                <ul style="list-style: none; padding: 0; font-size: 0.85rem;">
+                                    <li style="margin-bottom: 0.3rem;"><strong>재질:</strong> <span
+                                            id="materialType"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>내부 강도:</strong> <span
+                                            id="internalStrength"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>외부 강도:</strong> <span
+                                            id="externalStrength"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>유연성:</strong> <span
+                                            id="flexibility"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>압축 저항:</strong> <span
+                                            id="compressionResistance"></span></li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h3 style="color: var(--accent-color); font-size: 0.9rem; margin-bottom: 0.5rem;">변형
+                                    파라미터</h3>
+                                <ul style="list-style: none; padding: 0; font-size: 0.85rem;">
+                                    <li style="margin-bottom: 0.3rem;"><strong>휘어짐:</strong> <span
+                                            id="bendAmount"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>압착:</strong> <span
+                                            id="squeezeAmount"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>표면 불규칙성:</strong> <span
+                                            id="surfaceIrregularity"></span></li>
+                                    <li style="margin-bottom: 0.3rem;"><strong>스타일:</strong> <span
+                                            id="deformStyle"></span></li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -393,6 +481,10 @@
 
                 <div class="results-gallery" id="bentResultsGallery" style="display: none; margin-top: 1.5rem;">
                     <div class="result-card">
+                        <img id="viewBentCenter" src="" alt="Bent Center">
+                        <span>Bent Center View</span>
+                    </div>
+                    <div class="result-card">
                         <img id="viewBentLeft" src="" alt="Bent Left">
                         <span>Bent Side View (-)</span>
                     </div>
@@ -413,11 +505,16 @@
         const fileInput = document.getElementById('fileInput');
         const imagePreview = document.getElementById('imagePreview');
         const dropZoneText = document.getElementById('dropZoneText');
+        const analyzeBtn = document.getElementById('analyzeBtn');
         const actionBtn = document.getElementById('actionBtn');
         const loading = document.getElementById('loading');
         const resultsGallery = document.getElementById('resultsGallery');
+        const objectSelectionPanel = document.getElementById('objectSelectionPanel');
+        const objectGallery = document.getElementById('objectGallery');
 
         let selectedFile = null;
+        let selectedObjectId = null;
+        let imageHash = null;
         let scene, camera, renderer, controls, points;
 
         // --- Interaction Logic ---
@@ -438,22 +535,93 @@
         function handleFile(file) {
             if (!file.type.startsWith('image/')) return;
             selectedFile = file;
+            selectedObjectId = null;
+            imageHash = null;
+
             const reader = new FileReader();
             reader.onload = (e) => {
                 imagePreview.src = e.target.result;
                 imagePreview.style.display = 'block';
                 dropZoneText.style.display = 'none';
+
+                // Show analyze button, hide action button and object panel
+                analyzeBtn.style.display = 'block';
+                actionBtn.style.display = 'none';
+                objectSelectionPanel.style.display = 'none';
+                resultsGallery.style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
 
-        actionBtn.onclick = async () => {
-            if (!selectedFile) { alert('이미지를 업로드해주세요.'); return; }
+        // Analyze Image Button
+        analyzeBtn.onclick = async () => {
+            if (!selectedFile) return;
 
             const formData = new FormData();
             formData.append('image', selectedFile);
+
+            loading.style.display = 'block';
+            analyzeBtn.disabled = true;
+
+            try {
+                const resp = await fetch('/detect', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.detail);
+
+                imageHash = data.image_hash;
+
+                // Display objects
+                objectGallery.innerHTML = '';
+                data.objects.forEach(obj => {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.style.cursor = 'pointer';
+                    card.style.border = '2px solid transparent';
+                    card.onclick = () => {
+                        // Deselect all
+                        document.querySelectorAll('#objectGallery .result-card').forEach(c => {
+                            c.style.border = '2px solid transparent';
+                        });
+                        // Select this one
+                        card.style.border = '2px solid var(--accent-color)';
+                        selectedObjectId = obj.id;
+                        actionBtn.style.display = 'block';
+                    };
+
+                    const img = document.createElement('img');
+                    img.src = obj.thumbnail;
+                    img.alt = obj.label;
+
+                    const label = document.createElement('span');
+                    label.innerText = `${obj.label} (${(obj.score * 100).toFixed(0)}%)`;
+
+                    card.appendChild(img);
+                    card.appendChild(label);
+                    objectGallery.appendChild(card);
+                });
+
+                objectSelectionPanel.style.display = 'block';
+                analyzeBtn.style.display = 'none';
+
+            } catch (err) {
+                alert('객체 감지 실패: ' + err.message);
+                console.error(err);
+            } finally {
+                loading.style.display = 'none';
+                analyzeBtn.disabled = false;
+            }
+        };
+
+        actionBtn.onclick = async () => {
+            if (!selectedFile) { alert('이미지를 업로드해주세요.'); return; }
+            if (selectedObjectId === null) { alert('객체를 선택해주세요.'); return; }
+
+            const formData = new FormData();
+            formData.append('image', selectedFile);
+            formData.append('object_id', selectedObjectId);
             formData.append('target', document.getElementById('targetInput').value);
             formData.append('angle', document.getElementById('angleInput').value);
+            formData.append('mode', document.querySelector('input[name="mode"]:checked').value);
             formData.append('refine', document.getElementById('refineToggle').checked);
 
             loading.style.display = 'block';
@@ -465,18 +633,57 @@
                 const data = await resp.json();
                 if (!resp.ok) throw new Error(data.detail);
 
-                // Update Gallery
-                document.getElementById('viewLeft').src = data.files.left;
-                document.getElementById('viewRight').src = data.files.right;
-                resultsGallery.style.display = 'grid';
+                // Update Gallery based on mode
+                if (data.mode === 'hifi' && data.hifi_views && data.hifi_views.length === 6) {
+                    // High-Fidelity Mode: Show 6-view grid
+                    document.getElementById('resultsGallery').style.display = 'none';
+                    document.getElementById('hifiGallery').style.display = 'grid';
+                    for (let i = 0; i < 6; i++) {
+                        document.getElementById(`hifiView${i}`).src = data.hifi_views[i];
+                    }
+                } else {
+                    // Fast Mode: Show 3-view (left, center, right)
+                    document.getElementById('hifiGallery').style.display = 'none';
+                    document.getElementById('resultsGallery').style.display = 'grid';
+                    document.getElementById('viewCenter').src = data.files.center;
+                    document.getElementById('viewLeft').src = data.files.left;
+                    document.getElementById('viewRight').src = data.files.right;
+                }
+
+                // Show AI Material Analysis
+                const analysisSection = document.getElementById('aiAnalysisSection');
+                if (data.material_analysis) {
+                    const ma = data.material_analysis;
+
+                    document.getElementById('aiReasoning').innerText = ma.reasoning || '분석 정보 없음';
+                    document.getElementById('materialType').innerText = ma.material_type || '알 수 없음';
+                    document.getElementById('internalStrength').innerText = ((ma.internal_strength || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('externalStrength').innerText = ((ma.external_strength || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('flexibility').innerText = ((ma.flexibility || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('compressionResistance').innerText = ((ma.compression_resistance || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('bendAmount').innerText = ((ma.bend_amount || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('squeezeAmount').innerText = ((ma.squeeze_amount || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('surfaceIrregularity').innerText = ((ma.surface_irregularity || 0) * 100).toFixed(0) + '%';
+                    document.getElementById('deformStyle').innerText = (ma.style || 'ORGANIC').toUpperCase();
+
+                    analysisSection.style.display = 'block';
+                }
 
                 document.getElementById('viewBentLeft').src = data.files.bent_left;
                 document.getElementById('viewBentRight').src = data.files.bent_right;
+                document.getElementById('viewBentCenter').src = data.files.bent_center || data.files.bent_left;
                 document.getElementById('bentResultsGallery').style.display = 'grid';
                 document.getElementById('bentViewerContainer').style.display = 'flex';
-                document.getElementById('flexibilityBadge').innerText = `AI Weight: ${data.flexibility.toFixed(2)}`;
-                document.getElementById('styleBadge').innerText = `Style: ${data.def_style.toUpperCase()}`;
-                document.getElementById('irregularityBadge').innerText = `Noise: ${data.def_irregularity.toFixed(2)}`;
+                if (data.material_analysis) {
+                    const ma = data.material_analysis;
+                    document.getElementById('flexibilityBadge').innerText = `AI Weight: ${(ma.flexibility || 0).toFixed(2)}`;
+                    document.getElementById('styleBadge').innerText = `Style: ${(ma.style || 'organic').toUpperCase()}`;
+                    document.getElementById('irregularityBadge').innerText = `Noise: ${(ma.surface_irregularity || 0).toFixed(2)}`;
+                } else {
+                    document.getElementById('flexibilityBadge').innerText = `AI Weight: ${(data.flexibility || 0).toFixed(2)}`;
+                    document.getElementById('styleBadge').innerText = `Style: ${(data.def_style || 'organic').toUpperCase()}`;
+                    document.getElementById('irregularityBadge').innerText = `Noise: ${(data.def_irregularity || 0).toFixed(2)}`;
+                }
 
                 // Load 3D
                 if (data.files.obj) {
